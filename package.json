@@ -4,6 +4,10 @@
   "description": "Orchestrates PlaywrightPlanning agent runs per URL with fresh chat sessions and progress-file status watching.",
   "version": "0.0.1",
   "publisher": "your-org",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/StewartMckenzie/agent-loop-runner"
+  },
   "engines": {
     "vscode": "^1.95.0"
   },
@@ -81,6 +85,7 @@
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.95.0",
+    "@vscode/vsce": "^3.7.1",
     "typescript": "^5.5.0"
   }
 }

@@ -33,6 +33,15 @@ A VS Code extension that orchestrates AI agent runs over a list of URLs — each
 
 ### Install from VSIX
 
+1. Download the latest `.vsix` from [GitHub Releases](https://github.com/StewartMckenzie/agent-loop-runner/releases)
+2. Install in VS Code:
+   ```bash
+   code --install-extension agent-loop-runner-0.0.1.vsix
+   ```
+   Or: **Extensions** sidebar → `⋯` menu → **Install from VSIX…**
+
+### Build from Source
+
 ```bash
 npm install
 npm run compile
