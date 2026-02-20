@@ -123,6 +123,203 @@ Summary: <text>
 Reason: <cause>
 ```
 
+## How Agents Communicate with the Orchestrator
+
+The Agent Loop Runner uses **file system watchers** to track agent progress in real time. Agents don't call back into the extension directly — instead, they write files to specific paths that match configurable glob patterns. The extension watches those paths and updates the UI automatically.
+
+### Artifact Flow Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        Agent Loop Runner Extension                      │
+│                                                                         │
+│  1. Writes prompt to:                                                   │
+│     .agent-loop/prompts/<RunId>/<Item>.prompt.md                        │
+│                                                                         │
+│  2. Opens VS Code chat with the configured agent                        │
+│                                                                         │
+│  3. Watches for file system events... ──────────────────────┐           │
+│                                                              │           │
+│  ┌──────────────────────────────────────────────────────────┐│           │
+│  │  File Watchers (glob patterns)                           ││           │
+│  │                                                          ││           │
+│  │  progressGlob ──► maps feature to active job             ││           │
+│  │  specGlob     ──► links spec artifact to job             ││           │
+│  │  reqGlob      ──► links requirements doc to job          ││           │
+│  │  statusGlob   ──► resolves job as PASS/FAIL              ││           │
+│  └──────────────────────────────────────────────────────────┘│           │
+│                                                              │           │
+│  4. On PASS → marks job done, advances queue                 │           │
+│  5. On FAIL → retries with context from previous attempt     │           │
+└─────────────────────────────────────────────────────────────────────────┘
+
+                              ▲ watches files
+                              │
+        ┌─────────────────────┴────────────────────────┐
+        │              Agent (in Copilot Chat)          │
+        │                                               │
+        │  Writes artifacts to disk as it works:        │
+        │                                               │
+        │  ① Progress file   → detected by progressGlob│
+        │  ② Requirements doc → detected by reqGlob     │
+        │  ③ Spec file       → detected by specGlob     │
+        │  ④ Status file     → detected by statusGlob   │
+        └───────────────────────────────────────────────┘
+```
+
+### The Four Watched Globs
+
+Each glob maps to a watcher in the extension. When a matching file is created or modified, the extension updates the corresponding job.
+
+#### 1. Progress Glob (`progressGlob`)
+
+**Default**: `**/src/IntegrationTests/WebsitesExtension.E2ETests/tmp/progress-tracking/*-progress.md`
+
+**What it does**: When the agent creates `{FeatureName}-progress.md`, the extension extracts the feature name from the filename (e.g., `CORS-progress.md` → `CORS`) and maps it to the most recently started unmapped job. This is how the extension knows *which* job the agent is working on.
+
+**Written by**: PlaywrightPlanning agent (the orchestrator agent) — it creates and incrementally appends to this file across its planning phases.
+
+**Example path**: `src/IntegrationTests/WebsitesExtension.E2ETests/tmp/progress-tracking/CORS-progress.md`
+
+#### 2. Spec Glob (`specGlob`)
+
+**Default**: `**/src/IntegrationTests/WebsitesExtension.E2ETests/Tests/**/Agent-Based/*/*.spec.ts`
+
+**What it does**: Links the generated test spec to the active job. The extension extracts the feature name from `{FeatureName}.spec.ts` and associates it with the job via the `featureToJob` mapping established by the progress watcher.
+
+**Written by**: PlaywrightCoding agent (invoked as a subagent by PlaywrightPlanning).
+
+**Example path**: `src/IntegrationTests/WebsitesExtension.E2ETests/Tests/AppService/PostCreate/Agent-Based/CORS/CORS.spec.ts`
+
+#### 3. Requirements Glob (`requirementsGlob`)
+
+**Default**: `**/src/IntegrationTests/WebsitesExtension.E2ETests/Tests/**/Agent-Based/**/*-requirements.md`
+
+**What it does**: Links the requirements document to the active job. Similar to the spec watcher, the feature name is extracted from `{FeatureName}-requirements.md`.
+
+**Written by**: PlaywrightPlanning agent — creates this during its finalization phase summarizing all validated test requirements.
+
+**Example path**: `src/IntegrationTests/WebsitesExtension.E2ETests/Tests/AppService/PostCreate/Agent-Based/CORS/CORS-requirements.md`
+
+#### 4. Status Glob (hardcoded)
+
+**Pattern**: `**/.agent-loop/status/**/*.status.md`
+
+**What it does**: This is the **completion signal**. The extension matches the `<Item>` from the filename (e.g., `001.status.md`) to the corresponding job index and reads `AGENT_STATUS: PASS` or `AGENT_STATUS: FAIL` from the file contents. A PASS resolves the job; a FAIL triggers a retry (up to `maxLoopsPerUrl`).
+
+**Written by**: PlaywrightCoding agent — writes this as its final action after test execution succeeds or all retries are exhausted.
+
+**Example path**: `.agent-loop/status/20260220-143052-a1b2c3/001.status.md`
+
+### Feature-to-Job Mapping
+
+When the extension sends a prompt, it doesn't know what feature name the agent will choose. The mapping happens asynchronously:
+
+1. The extension starts job #001 and records `startedAt` timestamp
+2. The agent analyzes the URL and decides the feature is `CORS`
+3. The agent creates `CORS-progress.md`
+4. The progress watcher fires → extension extracts `CORS` from the filename
+5. Extension maps `CORS` → job #001 (the most recently started unmapped job within the `featureMapWindowMs` window)
+6. From this point, any `CORS.spec.ts` or `CORS-requirements.md` file events automatically link to job #001
+
+### Retry Context
+
+On retry attempts, the extension appends context from the previous attempt to the prompt so the agent can recover intelligently:
+
+```markdown
+---
+## Previous Attempt Context (attempt 1 of 3)
+
+**Failure reason**: Attempt 1 failed, retrying...
+**Status reason**: Locator timeout on save button
+**Progress file** (may contain useful locators/context): /path/to/CORS-progress.md
+**Existing spec file** (check before regenerating): /path/to/CORS.spec.ts
+**Requirements file**: /path/to/CORS-requirements.md
+
+Review the artifacts above before starting from scratch. Fix the failing spec if it exists rather than regenerating.
+```
+
+## Example Agent Setup
+
+The [`examples/`](examples/) folder contains a working set of agents designed for Playwright E2E test generation against Azure Portal features. These demonstrate the full agent-to-orchestrator communication pattern.
+
+### Agent Architecture
+
+```
+.github/
+├── agents/
+│   ├── PlaywrightPlanning.agent.md    ← entry point, configured as agentName
+│   ├── PlaywrightCoding.agent.md      ← invoked as subagent by Planning
+│   └── PlaywrightSelfHealing.agent.md ← invoked as subagent on test failure
+└── prompts/
+    └── basePrompt.md                  ← prompt template with {{URL}}, {{RunId}}, etc.
+```
+
+| Agent | Role | Writes to Glob |
+|-------|------|---------------|
+| **PlaywrightPlanning** | Orchestrator — analyzes features, validates locators in a live browser, creates planning artifacts. Never writes test code. | `progressGlob` (progress file), `requirementsGlob` (requirements doc) |
+| **PlaywrightCoding** | Code generator — reads planning artifacts and writes Playwright specs. Runs tests, fixes lint errors, and writes the status file. | `specGlob` (spec file), status glob (`.agent-loop/status/`) |
+| **PlaywrightSelfHealing** | Debugger — fixes failing specs by inspecting the live page, refining locators, and re-running tests. | Edits existing spec files (triggers `specGlob` change events) |
+
+### How the Three Agents Interact with the Extension
+
+```
+Extension                    PlaywrightPlanning           PlaywrightCoding         PlaywrightSelfHealing
+   │                                │                           │                          │
+   │── sends prompt ──────────────►│                            │                          │
+   │                                │                           │                          │
+   │                                │── creates progress file ─►│                          │
+   │◄── progressGlob fires ────────│  (maps job)               │                          │
+   │                                │                           │                          │
+   │                                │── creates requirements ──►│                          │
+   │◄── reqGlob fires ─────────────│  (links artifact)         │                          │
+   │                                │                           │                          │
+   │                                │── invokes subagent ──────►│                          │
+   │                                │                           │── creates spec file       │
+   │◄── specGlob fires ────────────│───────────────────────────│  (links artifact)        │
+   │                                │                           │                          │
+   │                                │                           │── runs test               │
+   │                                │                           │                          │
+   │                                │         (on test failure) │── invokes ──────────────►│
+   │                                │                           │                          │── fixes spec
+   │◄── specGlob fires ────────────│───────────────────────────│──────────────────────────│  (change event)
+   │                                │                           │                          │── re-runs test
+   │                                │                           │                          │
+   │                                │                           │── writes status file      │
+   │◄── statusGlob fires ──────────│───────────────────────────│  (PASS/FAIL)             │
+   │   (resolves job)               │                           │                          │
+   │── next job or done             │                           │                          │
+```
+
+### Writing Your Own Agents
+
+To adapt this pattern for your own use case:
+
+1. **Create your entry-point agent** in `.github/agents/<YourAgent>.agent.md` and set `agentLoopRunner.agentName` to match.
+
+2. **Write artifacts to paths that match the globs**. The extension doesn't care about your agent's internal logic — it only watches for files:
+   - A progress/tracking file matching `progressGlob` → maps the job by feature name
+   - Any intermediate artifacts matching `specGlob` / `requirementsGlob` → linked to the job in the UI
+   - A status file at `.agent-loop/status/<RunId>/<Item>.status.md` → resolves the job
+
+3. **Extract `RunId` and `Item` from the prompt header**. The extension injects these into every prompt:
+   ```
+   RunId: 20260220-143052-a1b2c3
+   Item: 001
+   ```
+   Your agent must read these and use them when writing the status file.
+
+4. **Write the status file last**. The status file is the completion signal. Write it only after all work is done:
+   ```
+   AGENT_STATUS: PASS
+   FeatureName: MyFeature
+   Timestamp: 2026-02-20T14:35:00Z
+   Summary: All tests passed.
+   SpecPath: path/to/output.spec.ts
+   ```
+
+5. **Update the glob settings** if your file paths differ from the defaults. You can change them in VS Code settings or directly in the extension UI.
+
 ## Requirements
 
 - VS Code 1.95+

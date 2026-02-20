@@ -1,0 +1,1 @@
+Please create a test plan and test for all possible configurations, platforms, and tabs. Make sure you test all crud operations.
