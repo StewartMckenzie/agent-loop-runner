@@ -25,29 +25,50 @@ A VS Code extension that orchestrates AI agent runs over a list of URLs — each
 4. On PASS → marks the job done and moves to the next URL
 5. On FAIL → retries up to the configured max attempts, appending previous-attempt context to help the agent recover
 
-## Quick Start
+## Getting Started
 
-1. Open this folder in VS Code and press **F5** to launch the Extension Development Host
-2. Run the command: **Agent Loop Runner: Open**
-3. Enter URLs, adjust settings, and click **Run**
+### Option 1: Develop the Extension (F5)
 
-### Install from VSIX
+Clone the repo, install dependencies, and launch the Extension Development Host:
+
+```bash
+git clone https://github.com/StewartMckenzie/agent-loop-runner.git
+cd agent-loop-runner
+npm install
+```
+
+1. Open the folder in VS Code
+2. Press **F5** — this compiles the TypeScript source and opens a new VS Code window with the extension loaded
+3. In the new window, open the Command Palette (`Ctrl+Shift+P`) and run **Agent Loop Runner: Open**
+4. Enter URLs, adjust settings, and click **Run**
+
+> The launch configuration is pre-configured in `.vscode/launch.json` with a `compile` pre-launch task, so source changes are compiled automatically on each F5 launch.
+
+### Option 2: Install from VSIX
+
+If you just want to **use** the extension without working on the source:
 
 1. Download the latest `.vsix` from [GitHub Releases](https://github.com/StewartMckenzie/agent-loop-runner/releases)
-2. Install in VS Code:
-   ```bash
-   code --install-extension agent-loop-runner-0.0.1.vsix
-   ```
-   Or: **Extensions** sidebar → `⋯` menu → **Install from VSIX…**
+2. Install in VS Code using one of these methods:
+   - **Command line:**
+     ```bash
+     code --install-extension agent-loop-runner-0.0.1.vsix
+     ```
+   - **VS Code UI:** Open the **Extensions** sidebar → click the `⋯` menu → **Install from VSIX…** → select the `.vsix` file
+3. Reload VS Code when prompted (or run **Developer: Reload Window** from the Command Palette)
+4. Open the Command Palette (`Ctrl+Shift+P`) and run **Agent Loop Runner: Open**
 
-### Build from Source
+### Build VSIX from Source
+
+To package a `.vsix` yourself:
 
 ```bash
 npm install
 npm run compile
 npx @vscode/vsce package
-code --install-extension agent-loop-runner-0.0.1.vsix
 ```
+
+This produces `agent-loop-runner-<version>.vsix` in the project root, which you can install with the steps above.
 
 ## Settings
 
