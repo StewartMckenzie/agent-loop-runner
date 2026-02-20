@@ -2,7 +2,7 @@
 
 A VS Code extension that orchestrates AI agent runs over a list of URLs — each URL gets a fresh chat session, a generated prompt, and automated status tracking. Designed for batch-running Copilot custom agents (e.g., Playwright test generation) across multiple pages unattended.
 
-![Agent Loop Runner UI](docs/screenshot.png)
+![Agent Loop Runner UI](docs/agent-image.png)
 
 ## Features
 
