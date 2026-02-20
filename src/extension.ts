@@ -38,18 +38,18 @@ interface Job {
     failureMessage?: string;
 }
 
-const PROMPTS_ROOT = '.ralph/prompts';
-const STATUS_ROOT = '.ralph/status';
-const STATUS_GLOB = '**/.ralph/status/**/*.status.md';
+const PROMPTS_ROOT = '.agent-loop/prompts';
+const STATUS_ROOT = '.agent-loop/status';
+const STATUS_GLOB = '**/.agent-loop/status/**/*.status.md';
 
 export function activate(context: vscode.ExtensionContext) {
-    context.subscriptions.push(vscode.commands.registerCommand('ralphLoopRunner.open', () => RalphLoopRunnerPanel.createOrShow(context)));
+    context.subscriptions.push(vscode.commands.registerCommand('agentLoopRunner.open', () => AgentLoopRunnerPanel.createOrShow(context)));
 }
 
 export function deactivate() {}
 
-class RalphLoopRunnerPanel {
-    public static currentPanel: RalphLoopRunnerPanel | undefined;
+class AgentLoopRunnerPanel {
+    public static currentPanel: AgentLoopRunnerPanel | undefined;
 
     private readonly panel: vscode.WebviewPanel;
     private readonly context: vscode.ExtensionContext;
@@ -94,21 +94,21 @@ class RalphLoopRunnerPanel {
     public static createOrShow(context: vscode.ExtensionContext) {
         const column = vscode.ViewColumn.One;
 
-        if (RalphLoopRunnerPanel.currentPanel) {
-            RalphLoopRunnerPanel.currentPanel.panel.reveal(column);
+        if (AgentLoopRunnerPanel.currentPanel) {
+            AgentLoopRunnerPanel.currentPanel.panel.reveal(column);
             return;
         }
 
-        const panel = vscode.window.createWebviewPanel('ralphLoopRunner', 'Ralph Loop Runner', column, {
+        const panel = vscode.window.createWebviewPanel('agentLoopRunner', 'Agent Loop Runner', column, {
             enableScripts: true,
             retainContextWhenHidden: true,
         });
 
-        RalphLoopRunnerPanel.currentPanel = new RalphLoopRunnerPanel(panel, context);
+        AgentLoopRunnerPanel.currentPanel = new AgentLoopRunnerPanel(panel, context);
     }
 
     private dispose() {
-        RalphLoopRunnerPanel.currentPanel = undefined;
+        AgentLoopRunnerPanel.currentPanel = undefined;
 
         this.progressWatcher?.dispose();
         this.specWatcher?.dispose();
@@ -124,7 +124,7 @@ class RalphLoopRunnerPanel {
     }
 
     private getConfig() {
-        const cfg = vscode.workspace.getConfiguration('ralphLoopRunner');
+        const cfg = vscode.workspace.getConfiguration('agentLoopRunner');
         return {
             maxLoopsPerUrl: clampInt(cfg.get<number>('maxLoopsPerUrl', 3), 1, 20),
             featureMapWindowMs: clampInt(cfg.get<number>('featureMapWindowMs', 120000), 1000, 3600000),
@@ -334,7 +334,7 @@ class RalphLoopRunnerPanel {
                 const progressGlob = String(msg?.progressGlob ?? '').trim();
                 const specGlob = String(msg?.specGlob ?? '').trim();
                 const requirementsGlob = String(msg?.requirementsGlob ?? '').trim();
-                const cfg = vscode.workspace.getConfiguration('ralphLoopRunner');
+                const cfg = vscode.workspace.getConfiguration('agentLoopRunner');
                 if (progressGlob) await cfg.update('progressGlob', progressGlob, vscode.ConfigurationTarget.Workspace);
                 if (specGlob) await cfg.update('specGlob', specGlob, vscode.ConfigurationTarget.Workspace);
                 if (requirementsGlob) await cfg.update('requirementsGlob', requirementsGlob, vscode.ConfigurationTarget.Workspace);
@@ -484,7 +484,7 @@ class RalphLoopRunnerPanel {
     }
 
     /**
-     * Writes a per-job prompt file to .ralph/prompts/<runId>/<index>-attempt<N>.prompt.md
+     * Writes a per-job prompt file to .agent-loop/prompts/<runId>/<index>-attempt<N>.prompt.md
      * by reading your existing template prompt from .github/prompts/ and injecting variables.
      *
      * Template supports tokens:
@@ -714,8 +714,8 @@ MaxLoopsPerUrl: ${job.maxLoops}
             this.postState();
         }
 
-        // NOTE: Completion detection relies on .ralph/status/ files written by
-        // the PlaywrightCoding agent (RALPH_STATUS: PASS|FAIL).  The progress
+        // NOTE: Completion detection relies on .agent-loop/status/ files written by
+        // the PlaywrightCoding agent (AGENT_STATUS: PASS|FAIL).  The progress
         // file is only used for feature-name → job mapping above.
     }
 
@@ -769,8 +769,8 @@ MaxLoopsPerUrl: ${job.maxLoops}
     }
 
     /**
-     * Watches for .ralph/status/<RunId>/<Item>.status.md files written by the
-     * PlaywrightCoding agent. Parses RALPH_STATUS: PASS|FAIL and maps back to
+     * Watches for .agent-loop/status/<RunId>/<Item>.status.md files written by the
+     * PlaywrightCoding agent. Parses AGENT_STATUS: PASS|FAIL and maps back to
      * the corresponding job by matching the Item label (e.g. "001") in the filename.
      */
     private async onStatusFileEvent(uri: vscode.Uri) {
@@ -791,7 +791,7 @@ MaxLoopsPerUrl: ${job.maxLoops}
         const itemLabel = itemMatch[1]; // e.g. "001"
 
         // Find the job that matches this Item label AND the current runId
-        // (status path should be under .ralph/status/<runId>/)
+        // (status path should be under .agent-loop/status/<runId>/)
         const jobIdx = this.jobs.findIndex(j => j.indexLabel === itemLabel && j.runId === this.runId);
         if (jobIdx < 0) return;
 
@@ -799,9 +799,9 @@ MaxLoopsPerUrl: ${job.maxLoops}
 
         // Parse the status block
         const statusMarkers = parseStatusFile(content);
-        if (!statusMarkers.ralphStatus) return;
+        if (!statusMarkers.agentStatus) return;
 
-        const finalStatus = statusMarkers.ralphStatus;
+        const finalStatus = statusMarkers.agentStatus;
         const status: JobStatus = finalStatus === 'PASS' ? 'Done' : 'Failed';
         const featureName = statusMarkers.featureName || job.featureName;
         const reason = statusMarkers.reason || statusMarkers.summary || job.reason;
@@ -819,7 +819,7 @@ MaxLoopsPerUrl: ${job.maxLoops}
     }
 
     /**
-     * Creates the .ralph/status/<runId>/ directory so the agent can write status files there.
+     * Creates the .agent-loop/status/<runId>/ directory so the agent can write status files there.
      */
     private async ensureStatusDir() {
         const ws = vscode.workspace.workspaceFolders?.[0];
@@ -848,9 +848,9 @@ MaxLoopsPerUrl: ${job.maxLoops}
             const data = await vscode.workspace.fs.readFile(statusUri);
             const content = Buffer.from(data).toString('utf8');
             const statusMarkers = parseStatusFile(content);
-            if (!statusMarkers.ralphStatus) return;
+            if (!statusMarkers.agentStatus) return;
 
-            const finalStatus = statusMarkers.ralphStatus;
+            const finalStatus = statusMarkers.agentStatus;
             const status: JobStatus = finalStatus === 'PASS' ? 'Done' : 'Failed';
 
             this.jobs[jobIdx] = {
@@ -911,7 +911,7 @@ MaxLoopsPerUrl: ${job.maxLoops}
   </style>
 </head>
 <body>
-  <h2>Ralph Loop Runner</h2>
+  <h2>Agent Loop Runner</h2>
 
   <div class="muted">
     Add URL + optional custom prompt pairs below. Empty prompt fields use the base prompt template.
@@ -1274,7 +1274,7 @@ function inferFeatureNameFromRequirementsPath(reqPath: string): string | undefin
 }
 
 interface StatusFileMarkers {
-    ralphStatus?: 'PASS' | 'FAIL';
+    agentStatus?: 'PASS' | 'FAIL';
     featureName?: string;
     timestamp?: string;
     summary?: string;
@@ -1283,9 +1283,9 @@ interface StatusFileMarkers {
 }
 
 /**
- * Parses a .ralph/status/<RunId>/<Item>.status.md file.
+ * Parses a .agent-loop/status/<RunId>/<Item>.status.md file.
  * Expected format (from PlaywrightCoding agent):
- *   RALPH_STATUS: PASS|FAIL
+ *   AGENT_STATUS: PASS|FAIL
  *   FeatureName: <name>
  *   Timestamp: <iso>
  *   Summary: <text>
@@ -1300,8 +1300,8 @@ function parseStatusFile(text: string): StatusFileMarkers {
         const trimmed = line.trim();
 
         {
-            const m = trimmed.match(/^RALPH_STATUS:\s*(PASS|FAIL)\s*$/i);
-            if (m) out.ralphStatus = m[1].toUpperCase() as 'PASS' | 'FAIL';
+            const m = trimmed.match(/^AGENT_STATUS:\s*(PASS|FAIL)\s*$/i);
+            if (m) out.agentStatus = m[1].toUpperCase() as 'PASS' | 'FAIL';
         }
         {
             const m = trimmed.match(/^FeatureName:\s*(.+)\s*$/i);

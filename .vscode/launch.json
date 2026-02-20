@@ -2,7 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run Ralph Loop Runner (Extension Host)",
+      "name": "Run Agent Loop Runner (Extension Host)",
       "type": "extensionHost",
       "request": "launch",
       "runtimeExecutable": "${execPath}",
