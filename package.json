@@ -42,11 +42,6 @@
           "maximum": 3600000,
           "description": "Window to map newly created progress files to the most recent unmapped running job."
         },
-        "agentLoopRunner.promptTemplatePath": {
-          "type": "string",
-          "default": ".github/prompts/basePrompt.md",
-          "description": "Path (workspace-relative) to the prompt template to use. The extension will inject URL and headers."
-        },
         "agentLoopRunner.agentName": {
           "type": "string",
           "default": "PlaywrightPlanning",

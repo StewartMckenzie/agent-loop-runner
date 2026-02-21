@@ -12,6 +12,8 @@ handoffs:
     send: false
 ---
 
+> **EXAMPLE ONLY** — This agent is specific to a particular repository and workflow (Azure Portal Playwright E2E testing). It is included here to demonstrate how the Agent Loop Runner extension integrates with a multi-agent system. Do not use this agent directly — instead, use it as a reference for building your own agents.
+
 # Playwright Self-Healing Agent
 
 You are a **Playwright Self-Healing Agent**. You debug, fix, and validate failing Playwright E2E specs by editing code directly and running tests.
@@ -62,10 +64,3 @@ You are a **Playwright Self-Healing Agent**. You debug, fix, and validate failin
 - **Passing test run** confirming the fix works
 - Progress file update with fix details and verification
 
----
-
-## Agent Loop Runner Integration
-
-This agent is invoked by the **PlaywrightPlanning** agent when a generated spec fails its initial test run. The planning agent coordinates retries: if self-healing succeeds, the planning agent proceeds to write the PASS status file. If self-healing exhausts its 15-attempt budget, it escalates back to the planning agent for re-validation.
-
-The self-healing agent does not write status files directly — that responsibility belongs to the coding agent or the planning agent orchestrating the workflow.

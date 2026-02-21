@@ -42,6 +42,9 @@ const PROMPTS_ROOT = '.agent-loop/prompts';
 const STATUS_ROOT = '.agent-loop/status';
 const STATUS_GLOB = '**/.agent-loop/status/**/*.status.md';
 
+/** Built-in default prompt used when no custom prompt is provided in the UI. */
+const DEFAULT_PROMPT = `Please create a test plan and test for all possible configurations, platforms, and tabs. Make sure you test all crud operations.`;
+
 export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(vscode.commands.registerCommand('agentLoopRunner.open', () => AgentLoopRunnerPanel.createOrShow(context)));
 }
@@ -128,9 +131,6 @@ class AgentLoopRunnerPanel {
         return {
             maxLoopsPerUrl: clampInt(cfg.get<number>('maxLoopsPerUrl', 3), 1, 20),
             featureMapWindowMs: clampInt(cfg.get<number>('featureMapWindowMs', 120000), 1000, 3600000),
-
-            // Where your existing prompt template lives (workspace-relative)
-            promptTemplatePath: cfg.get<string>('promptTemplatePath', '.github/prompts/basePrompt.md'),
 
             // Agent to route prompts to (must match a .github/agents/<name>.agent.md)
             agentName: cfg.get<string>('agentName', 'PlaywrightPlanning'),
@@ -485,7 +485,7 @@ class AgentLoopRunnerPanel {
 
     /**
      * Writes a per-job prompt file to .agent-loop/prompts/<runId>/<index>-attempt<N>.prompt.md
-     * by reading your existing template prompt from .github/prompts/ and injecting variables.
+     * using the per-job custom prompt (from the UI) or the built-in default prompt.
      *
      * Template supports tokens:
      *   {{URL}}, {{RunId}}, {{Item}}, {{MaxLoopsPerUrl}}, {{Attempt}}
@@ -503,24 +503,10 @@ class AgentLoopRunnerPanel {
         const outPromptUri = vscode.Uri.joinPath(promptsDir, filename);
         await vscode.workspace.fs.createDirectory(promptsDir);
 
-        // Use per-job custom prompt if provided, otherwise read from template file
-        let strippedTemplate: string;
-        if (job.customPrompt) {
-            strippedTemplate = stripFrontMatter(job.customPrompt);
-        } else {
-            const templateRelPath = cfg.promptTemplatePath;
-            const templateUri = vscode.Uri.joinPath(ws.uri, templateRelPath);
-
-            let templateText: string;
-            try {
-                const data = await vscode.workspace.fs.readFile(templateUri);
-                templateText = Buffer.from(data).toString('utf8');
-            } catch (e: any) {
-                throw new Error(`Could not read prompt template at "${templateRelPath}". ${e?.message ?? e}`);
-            }
-
-            strippedTemplate = stripFrontMatter(templateText);
-        }
+        // Use per-job custom prompt if provided in the UI, otherwise use built-in default
+        const strippedTemplate = job.customPrompt
+            ? stripFrontMatter(job.customPrompt)
+            : DEFAULT_PROMPT;
 
         // Build front matter + RunId/Item/Attempt context
         // NOTE: The custom agent is selected via the `mode` parameter in
@@ -914,7 +900,7 @@ MaxLoopsPerUrl: ${job.maxLoops}
   <h2>Agent Loop Runner</h2>
 
   <div class="muted">
-    Add URL + optional custom prompt pairs below. Empty prompt fields use the base prompt template.
+    Add URL + optional custom prompt pairs below. Empty prompt fields use the built-in default prompt.
   </div>
 
   <div class="row">

@@ -18,7 +18,7 @@ A VS Code extension that orchestrates AI agent runs over a list of URLs — each
 
 1. You provide a list of URLs (and optional per-URL custom prompts) in the webview panel
 2. For each URL, the extension:
-   - Generates a prompt file at `.agent-loop/prompts/<runId>/<index>.prompt.md` using your template with injected variables (`{{URL}}`, `{{RunId}}`, `{{Item}}`, `{{Attempt}}`, `{{MaxLoopsPerUrl}}`)
+   - Generates a prompt file at `.agent-loop/prompts/<runId>/<index>.prompt.md` using the built-in default prompt (or a custom prompt entered in the UI) with injected metadata headers (`RunId`, `Item`, `URL`, `Attempt`, `MaxLoopsPerUrl`)
    - Opens a new VS Code chat session with the configured agent (via `mode` parameter)
    - Auto-submits the prompt
 3. The extension watches for a `.agent-loop/status/<runId>/<index>.status.md` file written by the agent containing `AGENT_STATUS: PASS` or `AGENT_STATUS: FAIL`
@@ -78,7 +78,6 @@ All settings are under `agentLoopRunner.*` and can also be set in workspace `.vs
 |---------|---------|-------------|
 | `maxLoopsPerUrl` | `3` | Max retry attempts per URL (1–20) |
 | `featureMapWindowMs` | `120000` | Window (ms) to map newly created progress files to the most recent unmapped running job |
-| `promptTemplatePath` | `.github/prompts/basePrompt.md` | Workspace-relative path to the prompt template |
 | `agentName` | `PlaywrightPlanning` | Name of the chat agent to route prompts to (must match a `.github/agents/<name>.agent.md` file) |
 | `perJobTimeoutMs` | `0` | Max ms to wait for a job's status file. 0 = no timeout. Recommended: `1800000` (30 min) |
 | `progressGlob` | `**/src/IntegrationTests/.../*-progress.md` | Glob pattern for agent progress files |
@@ -87,19 +86,23 @@ All settings are under `agentLoopRunner.*` and can also be set in workspace `.vs
 
 The glob settings can also be changed directly in the **File Watcher Globs** section of the UI panel.
 
-## Prompt Template
+## Prompt
 
-The extension reads a prompt template file and injects these tokens:
+The extension ships with a built-in default prompt. You can override it per-URL by typing a custom prompt in the UI's prompt column. When no custom prompt is provided, the built-in default is used.
 
-| Token | Replaced with |
-|-------|--------------|
-| `{{URL}}` | The target URL for the job |
-| `{{RunId}}` | Unique run identifier (timestamp + random) |
-| `{{Item}}` | Job index label (e.g., `001`, `002`) |
-| `{{Attempt}}` | Current attempt number |
-| `{{MaxLoopsPerUrl}}` | Max retry attempts for this job |
+Every prompt (default or custom) is wrapped with metadata headers before submission:
 
-YAML front matter is stripped from the template and replaced with `mode: agent` front matter for the chat submission.
+```
+RunId: <unique run id>
+Item: <job index, e.g. 001>
+URL: <target URL>
+Attempt: <current attempt number>
+MaxLoopsPerUrl: <max retries>
+```
+
+If your custom prompt includes `{{URL}}`, `{{RunId}}`, `{{Item}}`, `{{Attempt}}`, or `{{MaxLoopsPerUrl}}` tokens, they will be replaced with the actual values.
+
+The built-in default prompt can be found in [`examples/prompts/basePrompt.md`](examples/prompts/basePrompt.md) for reference.
 
 ## Status File Protocol
 
@@ -241,18 +244,23 @@ Review the artifacts above before starting from scratch. Fix the failing spec if
 
 ## Example Agent Setup
 
-The [`examples/`](examples/) folder contains a working set of agents designed for Playwright E2E test generation against Azure Portal features. These demonstrate the full agent-to-orchestrator communication pattern.
+> **These example agents are not for direct use.** They are taken from a specific repository (Azure Portal App Service) and are included here to show how the Agent Loop Runner extension can integrate with an existing multi-agent workflow. The agents reference project-specific tooling, file structures, and conventions that won't exist in your workspace. Use them as a reference for understanding the communication patterns between agents and the extension.
 
-### Agent Architecture
+The [`examples/`](examples/) folder contains a set of agents designed for Playwright E2E test generation against Azure Portal features. They demonstrate:
+
+- How an orchestrator agent writes progress and requirements files that the extension detects via file watchers
+- How a coding subagent writes spec files and the terminal status file (`AGENT_STATUS: PASS/FAIL`) that resolves the job
+- How a self-healing subagent edits existing spec files, triggering change events on the same globs
+- How `RunId` and `Item` values flow from the extension's prompt through the agent chain to the status file
+
+### Agent Architecture (from the source repo)
 
 ```
 .github/
-├── agents/
-│   ├── PlaywrightPlanning.agent.md    ← entry point, configured as agentName
-│   ├── PlaywrightCoding.agent.md      ← invoked as subagent by Planning
-│   └── PlaywrightSelfHealing.agent.md ← invoked as subagent on test failure
-└── prompts/
-    └── basePrompt.md                  ← prompt template with {{URL}}, {{RunId}}, etc.
+└── agents/
+    ├── PlaywrightPlanning.agent.md    ← entry point, configured as agentName
+    ├── PlaywrightCoding.agent.md      ← invoked as subagent by Planning
+    └── PlaywrightSelfHealing.agent.md ← invoked as subagent on test failure
 ```
 
 | Agent | Role | Writes to Glob |
