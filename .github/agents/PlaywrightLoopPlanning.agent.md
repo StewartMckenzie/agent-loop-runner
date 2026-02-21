@@ -218,19 +218,26 @@ Must **NOT** contain: locators, TypeScript snippets, string resource refs, impor
 Create the progress file and write the `## Planning Agent Todo List` with objective, inputs, and a checklist mirroring Phases 1-6. Do NOT proceed until saved.
 
 #### Agent Loop Mode Branch Creation (RunId and Item present)
-Immediately after creating the progress file, create a dedicated working branch from the repo's main branch (typically `dev`). ALL work for this job happens on this branch.
+Immediately after creating the progress file, create a **git worktree** for a dedicated working branch based on the repo's main branch (typically `dev`). This avoids switching branches in the current working directory, which is critical when the Agent Loop Runner extension is queuing multiple URLs — the original branch must remain checked out.
 
 ```bash
 # Detect the repo's main branch (dev or main)
 MAIN_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "dev")
+git fetch origin $MAIN_BRANCH
 
-# Create and switch to the working branch
-git checkout $MAIN_BRANCH
-git pull origin $MAIN_BRANCH
-git checkout -b agent/{FeatureName}-test-suite
+# Create a worktree with a new branch based on latest main
+WORKTREE_DIR="../.agent-worktrees/{FeatureName}-test-suite"
+git worktree add -b agent/{FeatureName}-test-suite "$WORKTREE_DIR" origin/$MAIN_BRANCH
 ```
 
-All subsequent phases (code discovery, resource provisioning, browser validation, coding, etc.) run on this `agent/{FeatureName}-test-suite` branch. If `RunId` or `Item` are not present, skip this step.
+**IMPORTANT — worktree rules:**
+- The current working directory **stays on its original branch**. NEVER run `git checkout` or `git switch` in the main working directory.
+- All test file creation (specs, requirements, helpers) MUST target paths inside `$WORKTREE_DIR/` (e.g., `$WORKTREE_DIR/src/IntegrationTests/...`).
+- Progress files and status files remain in the main working directory (they are gitignored and must be accessible to the extension's file watchers).
+- Store the worktree path in a variable and pass it through to PlaywrightLoopCoding in the Phase 6 invocation alongside `RunId`, `Item`, and `FeatureName`.
+- After all phases complete and the PR is created, clean up with `git worktree remove "$WORKTREE_DIR"`.
+
+If `RunId` or `Item` are not present, skip this step (work directly in the main working directory as normal).
 
 ### Phase 1: Code Discovery (Subagent)
 
@@ -707,16 +714,23 @@ If `RunId` or `Item` are not present in the prompt header, skip this step.
 
 #### Git Workflow
 
-**Agent Loop Mode** (RunId and Item present): The `agent/{FeatureName}-test-suite` branch was already created in Phase 0. Now commit the E2E test artifacts, push the branch, and create a PR.
+**Agent Loop Mode** (RunId and Item present): The worktree at `$WORKTREE_DIR` already has the `agent/{FeatureName}-test-suite` branch checked out (created in Phase 0). Test files were written into the worktree. Commit, push, and create a PR from the worktree — without ever switching branches in the main working directory.
 
 ```bash
-# Stage only E2E test artifacts (spec files, requirements docs, helper files)
+WORKTREE_DIR="../.agent-worktrees/{FeatureName}-test-suite"
+
+# Stage only E2E test artifacts inside the worktree
+cd "$WORKTREE_DIR"
 git add "src/IntegrationTests/WebsitesExtension.E2ETests/Tests/**/Agent-Based/{FeatureName}/"
 git commit -m "test(playwright): add {FeatureName} spec [AgentLoop {RunId}/{Item}]"
 
 # Push the branch and create a PR
 git push -u origin agent/{FeatureName}-test-suite
 az repos pr create --title "[Low][E2E] {FeatureName} agent test" --auto-complete
+
+# Return to original directory and clean up the worktree
+cd -
+git worktree remove "$WORKTREE_DIR"
 ```
 
 This commits ONLY: spec file(s), requirements doc(s), and helper file(s). No progress files, status files, agent definitions, or extension code.

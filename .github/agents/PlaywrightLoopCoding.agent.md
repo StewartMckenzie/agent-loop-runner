@@ -224,18 +224,25 @@ If `RunId` or `Item` are not present in the prompt header, skip this step.
 ## Git Workflow (After Tests Pass)
 
 ### Agent Loop Mode (RunId and Item present in prompt header)
-When running as part of an Agent Loop (`RunId` and `Item` are present), a dedicated `agent/{FeatureName}-test-suite` branch was already created by PlaywrightLoopPlanning in Phase 0. You are already on that branch.
+When running as part of an Agent Loop (`RunId` and `Item` are present), PlaywrightLoopPlanning created a **git worktree** in Phase 0 with a dedicated `agent/{FeatureName}-test-suite` branch. The worktree path (`$WORKTREE_DIR`) should have been passed to you in the invocation prompt. The main working directory remains on its original branch — **NEVER run `git checkout` or `git switch` in the main working directory.**
 
-Commit the E2E test artifacts, push the branch, and create a PR:
+All test files (specs, requirements, helpers) should already be written inside the worktree. Commit, push, and create a PR from within the worktree:
 
 ```bash
-# Stage only E2E test artifacts (spec files, requirements docs, helper files)
+WORKTREE_DIR="../.agent-worktrees/{FeatureName}-test-suite"
+
+# Stage only E2E test artifacts inside the worktree
+cd "$WORKTREE_DIR"
 git add "src/IntegrationTests/WebsitesExtension.E2ETests/Tests/**/Agent-Based/{FeatureName}/"
 git commit -m "test(playwright): add {FeatureName} spec [AgentLoop {RunId}/{Item}]"
 
 # Push the branch and create a PR
 git push -u origin agent/{FeatureName}-test-suite
 az repos pr create --title "[Low][E2E] {FeatureName} agent test" --auto-complete
+
+# Return to original directory and clean up the worktree
+cd -
+git worktree remove "$WORKTREE_DIR"
 ```
 
 This commits ONLY: spec file(s), requirements doc(s), and helper file(s). No progress files, status files, agent definitions, or extension code.
