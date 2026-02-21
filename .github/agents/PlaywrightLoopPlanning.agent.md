@@ -96,7 +96,7 @@ When reading a section, use targeted line ranges. Instead of reading the entire 
 - **Coverage target**: 90%+ (GREEN). Formula: `(covered capabilities / total inventory) × 100`. Tiers: GREEN ≥90% | YELLOW 70-89% | RED <70%.
 - **User URL = feature reference ONLY**: A URL provided by the user identifies which feature to test. It may be used during Phase 4 browser validation to explore the UI and discover locators, but it is NEVER used as a test resource. ALWAYS create dedicated test resources with known baseline state.
 - **Resource sufficiency is mandatory**: After Phase 1 code discovery, cross-reference the `### Resource Requirements` against the capability inventory. Different UI states (configured vs unconfigured, auth enabled vs disabled, different source providers) may require **multiple resources** with different configurations.
-- **RunId/Item carry-forward**: The prompt header may contain `RunId` and `Item` fields from the Agent Loop Runner extension. Extract these values at the start and carry them through the entire workflow. Pass them to PlaywrightLoopCoding in the Phase 6 invocation so it can write the status file. If no `RunId`/`Item` are present, skip all status-file steps.
+- **RunId/Item carry-forward**: The prompt header contains `RunId` and `Item` fields from the Agent Loop Runner extension. Extract these values at the start and carry them through the entire workflow. Pass them to PlaywrightLoopCoding in the Phase 6 invocation so it can write the status file.
 
 ## File Paths & Naming
 
@@ -224,10 +224,8 @@ Must **NOT** contain: locators, TypeScript snippets, string resource refs, impor
 ### Phase 0: Create Progress File
 Create the progress file and write the `## Planning Agent Todo List` with objective, inputs, and a checklist mirroring Phases 1-6. Do NOT proceed until saved.
 
-#### Agent Loop Mode (RunId and Item present)
-When `WorktreePath` is provided in the prompt header, the Agent Loop Runner extension has already created a git worktree with a dedicated branch. **Do NOT run any git commands.** Write all new test files (specs, requirements, helpers) using absolute paths under the `WorktreePath`. Progress files and status files remain in the main working directory.
-
-If `RunId` or `Item` are not present, work directly in the main working directory as normal.
+#### Worktree Setup
+The Agent Loop Runner extension has already created a git worktree with a dedicated branch. The `WorktreePath` in the prompt header is the absolute path to this worktree. **Do NOT run any git commands.** Write all new test files (specs, requirements, helpers) using absolute paths under the `WorktreePath`. Progress files and status files remain in the main working directory.
 
 ### Phase 1: Code Discovery (Subagent)
 
@@ -540,7 +538,7 @@ After writing the spec, run lint, build, and execute. Fix iteratively (up to 3 a
 If unresolvable after 3+ attempts, invoke PlaywrightLoopSelfHealing with full context (spec path, progress file, requirements file, error output, fix attempts, suspected root cause).
 ```
 
-Include `RunId` and `Item` only when they were present in the original prompt header. PlaywrightLoopCoding uses these to write the `.agent-loop-runner/status/<RunId>/<Item>.status.md` file.
+Always include `RunId` and `Item` in the PlaywrightLoopCoding invocation. PlaywrightLoopCoding uses these to write the `.agent-loop-runner/status/<RunId>/<Item>.status.md` file.
 
 #### Multi-file path:
 Invoke PlaywrightLoopCoding **once per scenario**, sequentially. Each invocation produces one spec file.
@@ -700,17 +698,7 @@ Summary: {1-line summary of outcome}
 Reason: {1-line cause of failure}
 ```
 
-If `RunId` or `Item` are not present in the prompt header, skip this step.
-
 #### Git Workflow
 
-**Agent Loop Mode** (RunId and Item present): The extension handles all git operations automatically. After you write the PASS status file, the extension will commit test artifacts, push the branch, and create a PR. **Do NOT run any git commands.**
-
-**Interactive Mode** (no RunId/Item): Ask the user before creating a PR. If they agree:
-```bash
-git checkout -b test/{feature-name}-spec
-git add -A && git commit -m "test(playwright): add {FeatureName} spec"
-git push -u origin HEAD
-az repos pr create --title "[Low][E2E] {FeatureName} agent test" --auto-complete
-```
+The extension handles all git operations automatically. After you write the PASS status file, the extension will commit test artifacts, push the branch, and create a PR. **Do NOT run any git commands.**
 

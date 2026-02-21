@@ -219,24 +219,11 @@ Summary: Test passed; spec created/updated.
 SpecPath: <full or repo-relative path to spec file>
 ```
 
-If `RunId` or `Item` are not present in the prompt header, skip this step.
-
 ## Git Workflow (After Tests Pass)
 
-### Agent Loop Mode (RunId and Item present in prompt header)
-When running as part of an Agent Loop (`RunId` and `Item` are present), the Agent Loop Runner extension manages all git operations. A `WorktreePath` will be provided in the prompt header — all test files (specs, requirements, helpers) should be written to absolute paths under that directory.
+The Agent Loop Runner extension manages all git operations. A `WorktreePath` is provided in the prompt header — all test files (specs, requirements, helpers) must be written to absolute paths under that directory.
 
 **Do NOT run any git commands** — no `git checkout`, `git switch`, `git branch`, `git commit`, `git push`, `git add`, `git worktree`, or `az repos pr create`. The extension will automatically commit, push, and create a PR when you write the PASS status file.
-
-### Interactive Mode (no RunId/Item)
-Ask the user before creating a PR. If they agree:
-```bash
-git checkout -b test/{FeatureName}-spec
-git add -A && git commit -m "test(playwright): add {FeatureName} spec"
-git push -u origin HEAD
-az repos pr create --title "[Low][E2E] {FeatureName} agent test" --auto-complete
-```
-Skip PR if user declines.
 
 ## Escalation Protocol (after 3+ failed fix attempts)
 
@@ -265,5 +252,3 @@ Timestamp: <iso>
 Summary: SelfHealing did not resolve failures; reporting context.
 Reason: <1-line cause of failure>
 ```
-
-If `RunId` or `Item` are not present in the prompt header, skip this step.
