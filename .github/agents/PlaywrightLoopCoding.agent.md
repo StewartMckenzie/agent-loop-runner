@@ -224,28 +224,9 @@ If `RunId` or `Item` are not present in the prompt header, skip this step.
 ## Git Workflow (After Tests Pass)
 
 ### Agent Loop Mode (RunId and Item present in prompt header)
-When running as part of an Agent Loop (`RunId` and `Item` are present), PlaywrightLoopPlanning created a **git worktree** in Phase 0 with a dedicated `agent/{FeatureName}-test-suite` branch. The worktree path (`$WORKTREE_DIR`) should have been passed to you in the invocation prompt. The main working directory remains on its original branch — **NEVER run `git checkout` or `git switch` in the main working directory.**
+When running as part of an Agent Loop (`RunId` and `Item` are present), the Agent Loop Runner extension manages all git operations. A `WorktreePath` will be provided in the prompt header — all test files (specs, requirements, helpers) should be written to absolute paths under that directory.
 
-All test files (specs, requirements, helpers) should already be written inside the worktree. Commit, push, and create a PR from within the worktree:
-
-```bash
-WORKTREE_DIR="../.agent-worktrees/{FeatureName}-test-suite"
-
-# Stage only E2E test artifacts inside the worktree
-cd "$WORKTREE_DIR"
-git add "src/IntegrationTests/WebsitesExtension.E2ETests/Tests/**/Agent-Based/{FeatureName}/"
-git commit -m "test(playwright): add {FeatureName} spec [AgentLoop {RunId}/{Item}]"
-
-# Push the branch and create a PR
-git push -u origin agent/{FeatureName}-test-suite
-az repos pr create --title "[Low][E2E] {FeatureName} agent test" --auto-complete
-
-# Return to original directory and clean up the worktree
-cd -
-git worktree remove "$WORKTREE_DIR"
-```
-
-This commits ONLY: spec file(s), requirements doc(s), and helper file(s). No progress files, status files, agent definitions, or extension code.
+**Do NOT run any git commands** — no `git checkout`, `git switch`, `git branch`, `git commit`, `git push`, `git add`, `git worktree`, or `az repos pr create`. The extension will automatically commit, push, and create a PR when you write the PASS status file.
 
 ### Interactive Mode (no RunId/Item)
 Ask the user before creating a PR. If they agree:

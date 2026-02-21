@@ -1,3 +1,4 @@
+import { execSync } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
@@ -32,6 +33,11 @@ interface Job {
     // Timing / mapping
     startedAt?: number;
     mappedAt?: number;
+
+    // Git worktree
+    originalBranch?: string;
+    worktreePath?: string;
+    worktreeBranch?: string;
 
     // Control
     stopped?: boolean;
@@ -148,6 +154,12 @@ class AgentLoopRunnerPanel {
                 'requirementsGlob',
                 '**/src/IntegrationTests/WebsitesExtension.E2ETests/Tests/**/Agent-Based/**/*-requirements.md'
             ),
+
+            // Git worktree settings
+            enableWorktree: cfg.get<boolean>('enableWorktree', true),
+            worktreeDir: cfg.get<string>('worktreeDir', '../.agent-worktrees'),
+            prCreateCommand: cfg.get<string>('prCreateCommand', 'az repos pr create --title "[Low][E2E] {FeatureName} agent test" --auto-complete'),
+            commitGlob: cfg.get<string>('commitGlob', 'src/IntegrationTests/WebsitesExtension.E2ETests/Tests/**/Agent-Based/'),
         };
     }
 
@@ -386,81 +398,92 @@ class AgentLoopRunnerPanel {
         const job = this.jobs[jobIdx];
         if (!job) return;
 
+        // ── Worktree: create before the first attempt ──
+        this.createWorktreeForJob(jobIdx);
+
         const maxAttempts = job.maxLoops;
 
-        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-            // Re-read from this.jobs each iteration so stop mutations are visible
-            const current = this.jobs[jobIdx];
-            if (current?.stopped || !this.running) return;
+        try {
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                // Re-read from this.jobs each iteration so stop mutations are visible
+                const current = this.jobs[jobIdx];
+                if (current?.stopped || !this.running) return;
 
-            try {
-                // Delete stale status file before each attempt so the poller
-                // doesn't immediately re-read a FAIL from the previous attempt.
-                await this.deleteStatusFile(jobIdx);
+                try {
+                    // Delete stale status file before each attempt so the poller
+                    // doesn't immediately re-read a FAIL from the previous attempt.
+                    await this.deleteStatusFile(jobIdx);
 
-                this.jobs[jobIdx] = {
-                    ...this.jobs[jobIdx],
-                    status: attempt === 1 ? 'Planning' : 'Running',
-                    startedAt: Date.now(),
-                    attemptsUsed: attempt,
-                    // Reset per-attempt state
-                    finalStatus: undefined,
-                    failureMessage: undefined,
-                };
-                this.postState();
-
-                const promptUri = await this.writePromptFile(jobIdx, attempt);
-                this.jobs[jobIdx] = { ...this.jobs[jobIdx], promptPath: promptUri.fsPath, status: 'Running' };
-                this.postState();
-
-                await this.sendPromptToChat(jobIdx, promptUri);
-
-                // Wait for the agent to complete (watcher + polling driven)
-                const terminalStatus = await this.waitForTerminalStatus(jobIdx);
-
-                // If succeeded, we're done
-                if (terminalStatus === 'Done') return;
-
-                // If failed and we have more attempts, reset for retry
-                if (terminalStatus === 'Failed' && attempt < maxAttempts) {
                     this.jobs[jobIdx] = {
                         ...this.jobs[jobIdx],
-                        status: 'Queued',
-                        failureMessage: `Attempt ${attempt} failed, retrying...`,
-                    };
-                    this.postState();
-                    await delay(1000); // Brief pause between retries
-                    continue;
-                }
-
-                // Final attempt failed or stopped — leave as-is
-                return;
-            } catch (e: any) {
-                const msg = e?.message ? String(e.message) : String(e);
-
-                if (attempt < maxAttempts) {
-                    this.jobs[jobIdx] = {
-                        ...this.jobs[jobIdx],
-                        status: 'Queued',
+                        status: attempt === 1 ? 'Planning' : 'Running',
+                        startedAt: Date.now(),
                         attemptsUsed: attempt,
-                        failureMessage: `Attempt ${attempt} error: ${msg}. Retrying...`,
+                        // Reset per-attempt state
+                        finalStatus: undefined,
+                        failureMessage: undefined,
                     };
                     this.postState();
-                    await delay(1000);
-                    continue;
-                }
 
-                // Final attempt
-                this.jobs[jobIdx] = {
-                    ...this.jobs[jobIdx],
-                    status: 'Failed',
-                    failureMessage: msg,
-                    finalStatus: 'FAIL',
-                    attemptsUsed: attempt,
-                };
-                this.postState();
-                return;
+                    const promptUri = await this.writePromptFile(jobIdx, attempt);
+                    this.jobs[jobIdx] = { ...this.jobs[jobIdx], promptPath: promptUri.fsPath, status: 'Running' };
+                    this.postState();
+
+                    await this.sendPromptToChat(jobIdx, promptUri);
+
+                    // Wait for the agent to complete (watcher + polling driven)
+                    const terminalStatus = await this.waitForTerminalStatus(jobIdx);
+
+                    // If succeeded, commit/push/PR then we're done
+                    if (terminalStatus === 'Done') {
+                        await this.commitPushAndCreatePR(jobIdx);
+                        return;
+                    }
+
+                    // If failed and we have more attempts, reset for retry
+                    if (terminalStatus === 'Failed' && attempt < maxAttempts) {
+                        this.jobs[jobIdx] = {
+                            ...this.jobs[jobIdx],
+                            status: 'Queued',
+                            failureMessage: `Attempt ${attempt} failed, retrying...`,
+                        };
+                        this.postState();
+                        await delay(1000); // Brief pause between retries
+                        continue;
+                    }
+
+                    // Final attempt failed or stopped — leave as-is
+                    return;
+                } catch (e: any) {
+                    const msg = e?.message ? String(e.message) : String(e);
+
+                    if (attempt < maxAttempts) {
+                        this.jobs[jobIdx] = {
+                            ...this.jobs[jobIdx],
+                            status: 'Queued',
+                            attemptsUsed: attempt,
+                            failureMessage: `Attempt ${attempt} error: ${msg}. Retrying...`,
+                        };
+                        this.postState();
+                        await delay(1000);
+                        continue;
+                    }
+
+                    // Final attempt
+                    this.jobs[jobIdx] = {
+                        ...this.jobs[jobIdx],
+                        status: 'Failed',
+                        failureMessage: msg,
+                        finalStatus: 'FAIL',
+                        attemptsUsed: attempt,
+                    };
+                    this.postState();
+                    return;
+                }
             }
+        } finally {
+            // ── Worktree: always clean up, even on failure/stop ──
+            this.cleanupWorktree(jobIdx);
         }
     }
 
@@ -511,6 +534,19 @@ class AgentLoopRunnerPanel {
         // Build front matter + RunId/Item/Attempt context
         // NOTE: The custom agent is selected via the `mode` parameter in
         // workbench.action.chat.open, NOT via @mention in the body.
+        let worktreeBlock = '';
+        if (job.worktreePath) {
+            worktreeBlock = `WorktreePath: ${job.worktreePath}
+WorktreeBranch: ${job.worktreeBranch || 'unknown'}
+OriginalBranch: ${job.originalBranch || 'unknown'}
+
+**IMPORTANT — Git is managed by the extension. Do NOT run any git commands.**
+All new files MUST be written under the WorktreePath above using absolute paths.
+Do NOT run: git checkout, git branch, git switch, git worktree, git commit, git push, or az repos pr create.
+
+`;
+        }
+
         const header = `---
 mode: agent
 ---
@@ -520,7 +556,7 @@ Item: ${job.indexLabel}
 URL: ${job.url}
 Attempt: ${attempt}
 MaxLoopsPerUrl: ${job.maxLoops}
-
+${worktreeBlock}
 `;
 
         // Inject vars into template body
@@ -674,6 +710,9 @@ MaxLoopsPerUrl: ${job.maxLoops}
                 const updated = this.jobs[jobIdx];
                 if (updated.status === 'Done' || updated.status === 'Failed') return updated.status;
             }
+
+            // Branch guard: snap back if the agent switched branches in the main directory
+            this.guardBranch(jobIdx);
 
             await delay(2000);
         }
@@ -852,6 +891,209 @@ MaxLoopsPerUrl: ${job.maxLoops}
             // File doesn't exist yet — that's normal
         }
     }
+
+    // ─── Git Worktree Management ───────────────────────────────────────
+
+    /**
+     * Executes a git command in the given cwd, returning trimmed stdout.
+     * Returns undefined on failure instead of throwing.
+     */
+    private gitExec(cmd: string, cwd: string): string | undefined {
+        try {
+            return execSync(cmd, { cwd, stdio: ['pipe', 'pipe', 'pipe'], timeout: 30000 })
+                .toString()
+                .trim();
+        } catch {
+            return undefined;
+        }
+    }
+
+    /**
+     * Detects the repo's default branch (e.g. dev, main) from origin/HEAD.
+     */
+    private detectMainBranch(cwd: string): string {
+        const ref = this.gitExec('git symbolic-ref refs/remotes/origin/HEAD', cwd);
+        if (ref) return ref.replace(/^refs\/remotes\/origin\//, '');
+        // Fallback: try common names
+        for (const name of ['dev', 'main', 'master']) {
+            const check = this.gitExec(`git rev-parse --verify origin/${name}`, cwd);
+            if (check) return name;
+        }
+        return 'dev';
+    }
+
+    /**
+     * Creates a git worktree + branch for a job before sending the prompt.
+     * The main working directory stays on its current branch.
+     */
+    private createWorktreeForJob(jobIdx: number): void {
+        const ws = vscode.workspace.workspaceFolders?.[0];
+        if (!ws) return;
+
+        const cfg = this.getConfig();
+        if (!cfg.enableWorktree) return;
+
+        const cwd = ws.uri.fsPath;
+        const job = this.jobs[jobIdx];
+
+        // Save the current branch
+        const originalBranch = this.gitExec('git rev-parse --abbrev-ref HEAD', cwd) || 'unknown';
+
+        // Fetch latest main
+        const mainBranch = this.detectMainBranch(cwd);
+        this.gitExec(`git fetch origin ${mainBranch}`, cwd);
+
+        // Compute worktree path and branch name
+        const worktreeLabel = `${job.runId}-${job.indexLabel}`;
+        const worktreeBranch = `agent/${worktreeLabel}-test-suite`;
+        const worktreeBase = path.isAbsolute(cfg.worktreeDir)
+            ? cfg.worktreeDir
+            : path.resolve(cwd, cfg.worktreeDir);
+        const worktreePath = path.join(worktreeBase, worktreeLabel);
+
+        // Remove stale worktree / branch if they exist from a previous attempt
+        this.gitExec(`git worktree remove "${worktreePath}" --force`, cwd);
+        this.gitExec(`git branch -D "${worktreeBranch}"`, cwd);
+
+        // Create the worktree
+        const result = this.gitExec(
+            `git worktree add -b "${worktreeBranch}" "${worktreePath}" origin/${mainBranch}`,
+            cwd
+        );
+
+        if (result === undefined) {
+            // Worktree creation failed — log but continue without worktree
+            this.log(`[worktree] Failed to create worktree for job ${job.indexLabel}`);
+            this.jobs[jobIdx] = { ...this.jobs[jobIdx], originalBranch };
+            return;
+        }
+
+        this.log(`[worktree] Created ${worktreePath} on branch ${worktreeBranch}`);
+        this.jobs[jobIdx] = {
+            ...this.jobs[jobIdx],
+            originalBranch,
+            worktreePath,
+            worktreeBranch,
+        };
+    }
+
+    /**
+     * Branch guard: if the agent switched branches in the main directory, snap back.
+     * Called periodically during the poll loop.
+     */
+    private guardBranch(jobIdx: number): void {
+        const ws = vscode.workspace.workspaceFolders?.[0];
+        if (!ws) return;
+
+        const cfg = this.getConfig();
+        if (!cfg.enableWorktree) return;
+
+        const job = this.jobs[jobIdx];
+        if (!job.originalBranch || job.originalBranch === 'unknown') return;
+
+        const cwd = ws.uri.fsPath;
+        const current = this.gitExec('git rev-parse --abbrev-ref HEAD', cwd);
+        if (current && current !== job.originalBranch) {
+            this.log(`[worktree] Branch drifted to '${current}', restoring '${job.originalBranch}'`);
+            this.gitExec(`git checkout "${job.originalBranch}"`, cwd);
+        }
+    }
+
+    /**
+     * After AGENT_STATUS: PASS, commit test artifacts in the worktree, push, and create a PR.
+     */
+    private async commitPushAndCreatePR(jobIdx: number): Promise<void> {
+        const ws = vscode.workspace.workspaceFolders?.[0];
+        if (!ws) return;
+
+        const cfg = this.getConfig();
+        if (!cfg.enableWorktree) return;
+
+        const job = this.jobs[jobIdx];
+        if (!job.worktreePath || !job.worktreeBranch) return;
+
+        const wt = job.worktreePath;
+        const featureName = job.featureName || `${job.runId}-${job.indexLabel}`;
+
+        // Stage files
+        const addGlob = cfg.commitGlob.endsWith('/')
+            ? `${cfg.commitGlob}${featureName}/`
+            : cfg.commitGlob;
+
+        // Try specific glob first, fall back to git add -A for any new files
+        const addResult = this.gitExec(`git add "${addGlob}"`, wt);
+        if (addResult === undefined) {
+            // Glob didn't match — add all changes in the worktree
+            this.gitExec('git add -A', wt);
+        }
+
+        // Check if there's anything to commit
+        const diff = this.gitExec('git diff --cached --name-only', wt);
+        if (!diff) {
+            this.log(`[worktree] No staged changes in worktree for job ${job.indexLabel}, skipping commit.`);
+            return;
+        }
+
+        // Commit
+        const commitMsg = `test(playwright): add ${featureName} spec [AgentLoop ${job.runId}/${job.indexLabel}]`;
+        this.gitExec(`git commit -m "${commitMsg}"`, wt);
+
+        // Push
+        this.gitExec(`git push -u origin "${job.worktreeBranch}"`, wt);
+        this.log(`[worktree] Pushed ${job.worktreeBranch}`);
+
+        // Create PR (if configured)
+        if (cfg.prCreateCommand) {
+            const prCmd = cfg.prCreateCommand
+                .replace(/\{FeatureName\}/gi, featureName)
+                .replace(/\{RunId\}/gi, job.runId)
+                .replace(/\{Item\}/gi, job.indexLabel);
+            const prResult = this.gitExec(prCmd, wt);
+            if (prResult !== undefined) {
+                this.log(`[worktree] PR created: ${prResult}`);
+            } else {
+                this.log(`[worktree] PR creation command failed (non-fatal).`);
+            }
+        }
+    }
+
+    /**
+     * Removes the worktree and ensures the main working directory is on the original branch.
+     */
+    private cleanupWorktree(jobIdx: number): void {
+        const ws = vscode.workspace.workspaceFolders?.[0];
+        if (!ws) return;
+
+        const cfg = this.getConfig();
+        if (!cfg.enableWorktree) return;
+
+        const job = this.jobs[jobIdx];
+        const cwd = ws.uri.fsPath;
+
+        // Restore original branch if drifted
+        if (job.originalBranch && job.originalBranch !== 'unknown') {
+            const current = this.gitExec('git rev-parse --abbrev-ref HEAD', cwd);
+            if (current && current !== job.originalBranch) {
+                this.gitExec(`git checkout "${job.originalBranch}"`, cwd);
+            }
+        }
+
+        // Remove the worktree
+        if (job.worktreePath) {
+            this.gitExec(`git worktree remove "${job.worktreePath}" --force`, cwd);
+            this.log(`[worktree] Removed worktree ${job.worktreePath}`);
+        }
+    }
+
+    private log(msg: string) {
+        // Output to channel (visible in Output > Agent Loop Runner)
+        if (!AgentLoopRunnerPanel._outputChannel) {
+            AgentLoopRunnerPanel._outputChannel = vscode.window.createOutputChannel('Agent Loop Runner');
+        }
+        AgentLoopRunnerPanel._outputChannel.appendLine(`${new Date().toISOString()} ${msg}`);
+    }
+
+    private static _outputChannel?: vscode.OutputChannel;
 
     private postState() {
         this.panel.webview.postMessage({
