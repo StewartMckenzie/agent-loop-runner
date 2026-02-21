@@ -1,8 +1,8 @@
 {
   "name": "agent-loop-runner",
   "displayName": "Agent Loop Runner",
-  "description": "Orchestrates PlaywrightPlanning agent runs per URL with fresh chat sessions and progress-file status watching.",
-  "version": "0.0.1",
+  "description": "Orchestrates AI agent runs over a list of URLs with fresh chat sessions, automated retry, and file-system-based status tracking.",
+  "version": "0.0.2",
   "publisher": "your-org",
   "repository": {
     "type": "git",
