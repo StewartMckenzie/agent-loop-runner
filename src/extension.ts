@@ -38,9 +38,9 @@ interface Job {
     failureMessage?: string;
 }
 
-const PROMPTS_ROOT = '.agent-loop/prompts';
-const STATUS_ROOT = '.agent-loop/status';
-const STATUS_GLOB = '**/.agent-loop/status/**/*.status.md';
+const PROMPTS_ROOT = '.agent-loop-runner/prompts';
+const STATUS_ROOT = '.agent-loop-runner/status';
+const STATUS_GLOB = '**/.agent-loop-runner/status/**/*.status.md';
 
 /** Built-in default prompt used when no custom prompt is provided in the UI. */
 const DEFAULT_PROMPT = `Please create a test plan and test for all possible configurations, platforms, and tabs. Make sure you test all crud operations.`;
