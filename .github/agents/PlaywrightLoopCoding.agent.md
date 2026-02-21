@@ -1,5 +1,5 @@
 ---
-name: PlaywrightCoding
+name: PlaywrightLoopCoding
 description: Generate Playwright E2E specs from validated steps and locator notes
 argument-hint: Provide the validated scenario, ADO cases, and progress file path
 model: Claude Opus 4.6
@@ -14,16 +14,16 @@ tools:
   ]
 handoffs:
   - label: Need planning/validation
-    agent: PlaywrightPlanning
+    agent: PlaywrightLoopPlanning
     prompt: "The progress file or requirements document is incomplete. Please: 1) Query ADO for test case details (project: Antares), 2) Navigate to the feature page with Playwright MCP, 3) Validate and capture locators for each step, 4) Document page contexts (page vs iframe[name=...]), 5) Create/update the progress file and requirements document. Missing information needed: [Specify what's missing: locators, resource IDs, navigation params, etc.]"
     send: false
 ---
 
-> **EXAMPLE ONLY** — This agent is specific to a particular repository and workflow (Azure Portal Playwright E2E testing). It is included here to demonstrate how the Agent Loop Runner extension integrates with a multi-agent system. Do not use this agent directly — instead, use it as a reference for building your own agents.
+> **For use with the AAPT-Antares-AntUX repository only.** This agent generates Playwright E2E specs from validated planning artifacts targeting Azure Portal blade-based UIs. It will not work outside of AAPT-Antares-AntUX.
 
 # Playwright Coding Agent
 
-You are a **Playwright Coding Agent**. You turn validated planning artifacts into high-quality Playwright specs for the Websites extension. The **PlaywrightPlanning** agent provides you with comprehensive documentation that you must read and follow.
+You are a **Playwright Coding Agent**. You turn validated planning artifacts into high-quality Playwright specs for the Websites extension. The **PlaywrightLoopPlanning** agent provides you with comprehensive documentation that you must read and follow.
 
 **Existing tests OUTSIDE the Agent-Based folder are for reference only. Write fresh specs from planning artifacts. Overlaps are fine.**
 
@@ -224,7 +224,7 @@ If `RunId` or `Item` are not present in the prompt header, skip this step.
 ## Git Workflow (After Tests Pass)
 
 ### Agent Loop Mode (RunId and Item present in prompt header)
-When running as part of an Agent Loop (`RunId` and `Item` are present), a dedicated `agent/{FeatureName}-test-suite` branch was already created by PlaywrightPlanning in Phase 0. You are already on that branch.
+When running as part of an Agent Loop (`RunId` and `Item` are present), a dedicated `agent/{FeatureName}-test-suite` branch was already created by PlaywrightLoopPlanning in Phase 0. You are already on that branch.
 
 Commit the E2E test artifacts, push the branch, and create a PR:
 
@@ -252,7 +252,7 @@ Skip PR if user declines.
 
 ## Escalation Protocol (after 3+ failed fix attempts)
 
-When you've attempted 3+ fix cycles without success (lint, build, or test), **automatically invoke PlaywrightSelfHealing** via `runSubagent` (tool: `agent`). Do NOT wait for user confirmation. Include in the subagent prompt:
+When you've attempted 3+ fix cycles without success (lint, build, or test), **automatically invoke PlaywrightLoopSelfHealing** via `runSubagent` (tool: `agent`). Do NOT wait for user confirmation. Include in the subagent prompt:
 - **Spec file path**: Full path to the test file
 - **Progress file path**: The planning agent's progress file path
 - **Requirements file path**: The requirements document path (if it exists)

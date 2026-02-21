@@ -133,7 +133,7 @@ class AgentLoopRunnerPanel {
             featureMapWindowMs: clampInt(cfg.get<number>('featureMapWindowMs', 120000), 1000, 3600000),
 
             // Agent to route prompts to (must match a .github/agents/<name>.agent.md)
-            agentName: cfg.get<string>('agentName', 'PlaywrightPlanning'),
+            agentName: cfg.get<string>('agentName', 'PlaywrightLoopPlanning'),
 
             // Safety-net timeout per job (ms). 0 = no timeout (default).
             perJobTimeoutMs: clampInt(cfg.get<number>('perJobTimeoutMs', 0), 0, 86400000),
@@ -572,7 +572,7 @@ MaxLoopsPerUrl: ${job.maxLoops}
      *
      * `workbench.action.chat.open` accepts a `mode` parameter that maps to
      * a custom agent name (from `.github/agents/<name>.agent.md`).  Passing
-     * `mode: 'PlaywrightPlanning'` selects that agent directly — no @mention
+     * `mode: 'PlaywrightLoopPlanning'` selects that agent directly — no @mention
      * needed.  The command also accepts `isPartialQuery: false` to auto-submit.
      */
     private async sendPromptToChat(_jobIdx: number, promptUri: vscode.Uri) {
@@ -701,7 +701,7 @@ MaxLoopsPerUrl: ${job.maxLoops}
         }
 
         // NOTE: Completion detection relies on .agent-loop/status/ files written by
-        // the PlaywrightCoding agent (AGENT_STATUS: PASS|FAIL).  The progress
+        // the agent (AGENT_STATUS: PASS|FAIL).  The progress
         // file is only used for feature-name → job mapping above.
     }
 
@@ -756,7 +756,7 @@ MaxLoopsPerUrl: ${job.maxLoops}
 
     /**
      * Watches for .agent-loop/status/<RunId>/<Item>.status.md files written by the
-     * PlaywrightCoding agent. Parses AGENT_STATUS: PASS|FAIL and maps back to
+     * agent. Parses AGENT_STATUS: PASS|FAIL and maps back to
      * the corresponding job by matching the Item label (e.g. "001") in the filename.
      */
     private async onStatusFileEvent(uri: vscode.Uri) {
@@ -1270,7 +1270,7 @@ interface StatusFileMarkers {
 
 /**
  * Parses a .agent-loop/status/<RunId>/<Item>.status.md file.
- * Expected format (from PlaywrightCoding agent):
+ * Expected format (from the agent):
  *   AGENT_STATUS: PASS|FAIL
  *   FeatureName: <name>
  *   Timestamp: <iso>

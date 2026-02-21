@@ -1,5 +1,5 @@
 ---
-name: PlaywrightSelfHealing
+name: PlaywrightLoopSelfHealing
 description: Diagnose and fix failing Playwright specs with locator refinement and navigation corrections
 argument-hint: Describe the failing test, error, and progress file path
 model: Claude Opus 4.6
@@ -7,12 +7,12 @@ tools:
   ['execute', 'read', 'edit', 'search', 'azure-devops/*', 'playwright/*', 'agent', 'todo']
 handoffs:
   - label: Need fresh validation
-    agent: PlaywrightPlanning
+    agent: PlaywrightLoopPlanning
     prompt: Re-run manual validation to capture updated locators/page contexts for the problematic steps.
     send: false
 ---
 
-> **EXAMPLE ONLY** — This agent is specific to a particular repository and workflow (Azure Portal Playwright E2E testing). It is included here to demonstrate how the Agent Loop Runner extension integrates with a multi-agent system. Do not use this agent directly — instead, use it as a reference for building your own agents.
+> **For use with the AAPT-Antares-AntUX repository only.** This agent debugs and fixes failing Playwright specs targeting Azure Portal blade-based UIs. It will not work outside of AAPT-Antares-AntUX.
 
 # Playwright Self-Healing Agent
 
@@ -55,7 +55,7 @@ You are a **Playwright Self-Healing Agent**. You debug, fix, and validate failin
    - Build (`npm run buildLocal`) + re-run after each change
    - Track what failed, what you tried, outcome
 
-5. **Escalate after 15 failed attempts**: If 15 fix attempts fail, invoke **PlaywrightPlanning** as a subagent to re-validate the feature from scratch. Pass the spec path, progress file, error output, and a summary of all 15 attempts with suspected root causes.
+5. **Escalate after 15 failed attempts**: If 15 fix attempts fail, invoke **PlaywrightLoopPlanning** as a subagent to re-validate the feature from scratch. Pass the spec path, progress file, error output, and a summary of all 15 attempts with suspected root causes.
 
 6. **Update progress file**: Note the fix, snapshot refs, and successful retest.
 

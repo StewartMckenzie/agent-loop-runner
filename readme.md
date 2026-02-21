@@ -78,7 +78,7 @@ All settings are under `agentLoopRunner.*` and can also be set in workspace `.vs
 |---------|---------|-------------|
 | `maxLoopsPerUrl` | `3` | Max retry attempts per URL (1–20) |
 | `featureMapWindowMs` | `120000` | Window (ms) to map newly created progress files to the most recent unmapped running job |
-| `agentName` | `PlaywrightPlanning` | Name of the chat agent to route prompts to (must match a `.github/agents/<name>.agent.md` file) |
+| `agentName` | `PlaywrightLoopPlanning` | Name of the chat agent to route prompts to (must match a `.github/agents/<name>.agent.md` file) |
 | `perJobTimeoutMs` | `0` | Max ms to wait for a job's status file. 0 = no timeout. Recommended: `1800000` (30 min) |
 | `progressGlob` | `**/src/IntegrationTests/.../*-progress.md` | Glob pattern for agent progress files |
 | `specGlob` | `**/.../*/*.spec.ts` | Glob pattern for generated spec files |
@@ -180,7 +180,7 @@ Each glob maps to a watcher in the extension. When a matching file is created or
 
 **What it does**: When the agent creates `{FeatureName}-progress.md`, the extension extracts the feature name from the filename (e.g., `CORS-progress.md` → `CORS`) and maps it to the most recently started unmapped job. This is how the extension knows *which* job the agent is working on.
 
-**Written by**: PlaywrightPlanning agent (the orchestrator agent) — it creates and incrementally appends to this file across its planning phases.
+**Written by**: PlaywrightLoopPlanning agent (the orchestrator agent) — it creates and incrementally appends to this file across its planning phases.
 
 **Example path**: `src/IntegrationTests/WebsitesExtension.E2ETests/tmp/progress-tracking/CORS-progress.md`
 
@@ -190,7 +190,7 @@ Each glob maps to a watcher in the extension. When a matching file is created or
 
 **What it does**: Links the generated test spec to the active job. The extension extracts the feature name from `{FeatureName}.spec.ts` and associates it with the job via the `featureToJob` mapping established by the progress watcher.
 
-**Written by**: PlaywrightCoding agent (invoked as a subagent by PlaywrightPlanning).
+**Written by**: PlaywrightLoopCoding agent (invoked as a subagent by PlaywrightLoopPlanning).
 
 **Example path**: `src/IntegrationTests/WebsitesExtension.E2ETests/Tests/AppService/PostCreate/Agent-Based/CORS/CORS.spec.ts`
 
@@ -200,7 +200,7 @@ Each glob maps to a watcher in the extension. When a matching file is created or
 
 **What it does**: Links the requirements document to the active job. Similar to the spec watcher, the feature name is extracted from `{FeatureName}-requirements.md`.
 
-**Written by**: PlaywrightPlanning agent — creates this during its finalization phase summarizing all validated test requirements.
+**Written by**: PlaywrightLoopPlanning agent — creates this during its finalization phase summarizing all validated test requirements.
 
 **Example path**: `src/IntegrationTests/WebsitesExtension.E2ETests/Tests/AppService/PostCreate/Agent-Based/CORS/CORS-requirements.md`
 
@@ -210,7 +210,7 @@ Each glob maps to a watcher in the extension. When a matching file is created or
 
 **What it does**: This is the **completion signal**. The extension matches the `<Item>` from the filename (e.g., `001.status.md`) to the corresponding job index and reads `AGENT_STATUS: PASS` or `AGENT_STATUS: FAIL` from the file contents. A PASS resolves the job; a FAIL triggers a retry (up to `maxLoopsPerUrl`).
 
-**Written by**: PlaywrightCoding agent — writes this as its final action after test execution succeeds or all retries are exhausted.
+**Written by**: PlaywrightLoopCoding agent — writes this as its final action after test execution succeeds or all retries are exhausted.
 
 **Example path**: `.agent-loop/status/20260220-143052-a1b2c3/001.status.md`
 
@@ -244,9 +244,9 @@ Review the artifacts above before starting from scratch. Fix the failing spec if
 
 ## Example Agent Setup
 
-> **These example agents are not for direct use.** They are taken from a specific repository (Azure Portal App Service) and are included here to show how the Agent Loop Runner extension can integrate with an existing multi-agent workflow. The agents reference project-specific tooling, file structures, and conventions that won't exist in your workspace. Use them as a reference for understanding the communication patterns between agents and the extension.
+> **These agents are designed for use with the AAPT-Antares-AntUX repository only.** They target the Azure Portal extension framework (Ibiza) — its blade navigation patterns, `data-automation-id` locators, ARM API conventions, and iframe-based rendering. **They will not work outside of the AAPT-Antares-AntUX repository.** If your project is not AAPT-Antares-AntUX, use them as a reference for understanding the communication patterns between agents and the extension, then build your own agents tailored to your stack.
 
-The [`examples/`](examples/) folder contains a set of agents designed for Playwright E2E test generation against Azure Portal features. They demonstrate:
+The [`.github/agents/`](.github/agents/) folder contains three agents that form a complete Playwright E2E test generation pipeline. They demonstrate:
 
 - How an orchestrator agent writes progress and requirements files that the extension detects via file watchers
 - How a coding subagent writes spec files and the terminal status file (`AGENT_STATUS: PASS/FAIL`) that resolves the job
@@ -258,21 +258,21 @@ The [`examples/`](examples/) folder contains a set of agents designed for Playwr
 ```
 .github/
 └── agents/
-    ├── PlaywrightPlanning.agent.md    ← entry point, configured as agentName
-    ├── PlaywrightCoding.agent.md      ← invoked as subagent by Planning
-    └── PlaywrightSelfHealing.agent.md ← invoked as subagent on test failure
+    ├── PlaywrightLoopPlanning.agent.md    ← entry point, configured as agentName
+    ├── PlaywrightLoopCoding.agent.md      ← invoked as subagent by Planning
+    └── PlaywrightLoopSelfHealing.agent.md ← invoked as subagent on test failure
 ```
 
 | Agent | Role | Writes to Glob |
 |-------|------|---------------|
-| **PlaywrightPlanning** | Orchestrator — analyzes features, validates locators in a live browser, creates planning artifacts. Never writes test code. | `progressGlob` (progress file), `requirementsGlob` (requirements doc) |
-| **PlaywrightCoding** | Code generator — reads planning artifacts and writes Playwright specs. Runs tests, fixes lint errors, and writes the status file. | `specGlob` (spec file), status glob (`.agent-loop/status/`) |
-| **PlaywrightSelfHealing** | Debugger — fixes failing specs by inspecting the live page, refining locators, and re-running tests. | Edits existing spec files (triggers `specGlob` change events) |
+| **PlaywrightLoopPlanning** | Orchestrator — analyzes features, validates locators in a live browser, creates planning artifacts. Never writes test code. | `progressGlob` (progress file), `requirementsGlob` (requirements doc) |
+| **PlaywrightLoopCoding** | Code generator — reads planning artifacts and writes Playwright specs. Runs tests, fixes lint errors, and writes the status file. | `specGlob` (spec file), status glob (`.agent-loop/status/`) |
+| **PlaywrightLoopSelfHealing** | Debugger — fixes failing specs by inspecting the live page, refining locators, and re-running tests. | Edits existing spec files (triggers `specGlob` change events) |
 
 ### How the Three Agents Interact with the Extension
 
 ```
-Extension                    PlaywrightPlanning           PlaywrightCoding         PlaywrightSelfHealing
+Extension                    LoopPlanning                 LoopCoding               LoopSelfHealing
    │                                │                           │                          │
    │── sends prompt ──────────────►│                            │                          │
    │                                │                           │                          │
