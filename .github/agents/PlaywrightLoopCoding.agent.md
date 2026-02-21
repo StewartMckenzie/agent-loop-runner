@@ -221,9 +221,9 @@ SpecPath: <full or repo-relative path to spec file>
 
 ## Git Workflow (After Tests Pass)
 
-The Agent Loop Runner extension manages all git operations. A `WorktreePath` is provided in the prompt header — all test files (specs, requirements, helpers) must be written to absolute paths under that directory.
+The Agent Loop Runner extension manages all git operations automatically. Write test files normally using workspace-relative paths — the extension will copy them to an isolated branch, commit, push, and create a PR when you write the PASS status file.
 
-**Do NOT run any git commands** — no `git checkout`, `git switch`, `git branch`, `git commit`, `git push`, `git add`, `git worktree`, or `az repos pr create`. The extension will automatically commit, push, and create a PR when you write the PASS status file.
+**Do NOT run any git commands** — no `git checkout`, `git switch`, `git branch`, `git commit`, `git push`, `git add`, `git worktree`, or `az repos pr create`.
 
 ## Escalation Protocol (after 3+ failed fix attempts)
 

@@ -49,7 +49,6 @@ Delegate ALL heavy work to subagents via `runSubagent`. Never read large source 
 - **NEVER** run `git worktree add` or `git worktree remove` — the extension creates and cleans up worktrees automatically
 - **NEVER** run `git commit`, `git push`, or `git add` — the extension commits and pushes on PASS
 - **NEVER** run `az repos pr create` or any PR creation command — the extension handles PR creation
-- When a `WorktreePath` is provided in the prompt header, write ALL new test files (specs, requirements, helpers) to absolute paths under that WorktreePath directory. Progress files and status files stay in the main working directory.
 
 Violating these rules wastes context window and risks lost context on longer sessions.
 
@@ -224,8 +223,8 @@ Must **NOT** contain: locators, TypeScript snippets, string resource refs, impor
 ### Phase 0: Create Progress File
 Create the progress file and write the `## Planning Agent Todo List` with objective, inputs, and a checklist mirroring Phases 1-6. Do NOT proceed until saved.
 
-#### Worktree Setup
-The Agent Loop Runner extension has already created a git worktree with a dedicated branch. The `WorktreePath` in the prompt header is the absolute path to this worktree. **Do NOT run any git commands.** Write all new test files (specs, requirements, helpers) using absolute paths under the `WorktreePath`. Progress files and status files remain in the main working directory.
+#### Git & Branch Isolation
+The Agent Loop Runner extension manages git worktrees, branches, commits, pushes, and PR creation automatically. **Do NOT run any git commands.** Write all new test files (specs, requirements, helpers) normally using workspace-relative paths. The extension will copy them to an isolated branch after your status file indicates PASS.
 
 ### Phase 1: Code Discovery (Subagent)
 

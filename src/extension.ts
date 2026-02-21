@@ -1,4 +1,5 @@
 import { execSync } from 'child_process';
+import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
@@ -534,18 +535,9 @@ class AgentLoopRunnerPanel {
         // Build front matter + RunId/Item/Attempt context
         // NOTE: The custom agent is selected via the `mode` parameter in
         // workbench.action.chat.open, NOT via @mention in the body.
-        let worktreeBlock = '';
-        if (job.worktreePath) {
-            worktreeBlock = `WorktreePath: ${job.worktreePath}
-WorktreeBranch: ${job.worktreeBranch || 'unknown'}
-OriginalBranch: ${job.originalBranch || 'unknown'}
-
-**IMPORTANT — Git is managed by the extension. Do NOT run any git commands.**
-All new files MUST be written under the WorktreePath above using absolute paths.
-Do NOT run: git checkout, git branch, git switch, git worktree, git commit, git push, or az repos pr create.
-
-`;
-        }
+        const gitBlock = job.worktreePath
+            ? `\n**IMPORTANT — Git is managed by the extension. Do NOT run any git commands.**\nDo NOT run: git checkout, git branch, git switch, git worktree, git commit, git push, or az repos pr create.\n`
+            : '';
 
         const header = `---
 mode: agent
@@ -556,7 +548,7 @@ Item: ${job.indexLabel}
 URL: ${job.url}
 Attempt: ${attempt}
 MaxLoopsPerUrl: ${job.maxLoops}
-${worktreeBlock}
+${gitBlock}
 `;
 
         // Inject vars into template body
@@ -1000,7 +992,13 @@ ${worktreeBlock}
     }
 
     /**
-     * After AGENT_STATUS: PASS, commit test artifacts in the worktree, push, and create a PR.
+     * After AGENT_STATUS: PASS, copy agent-created files from the main
+     * workspace into the worktree, commit, push, and create a PR.
+     *
+     * The agent writes files to the main workspace (not the worktree) because
+     * VS Code tools resolve paths relative to the open workspace folder.
+     * This method detects those new/modified files and mirrors them into the
+     * worktree so they can be committed on the isolated branch.
      */
     private async commitPushAndCreatePR(jobIdx: number): Promise<void> {
         const ws = vscode.workspace.workspaceFolders?.[0];
@@ -1012,10 +1010,15 @@ ${worktreeBlock}
         const job = this.jobs[jobIdx];
         if (!job.worktreePath || !job.worktreeBranch) return;
 
+        const cwd = ws.uri.fsPath;
         const wt = job.worktreePath;
         const featureName = job.featureName || `${job.runId}-${job.indexLabel}`;
 
-        // Stage files
+        // ── Step 1: Copy new/modified files from main workspace → worktree ──
+        const copied = this.copyNewFilesToWorktree(cwd, wt, featureName);
+        this.log(`[worktree] Copied ${copied} file(s) from main workspace to worktree for job ${job.indexLabel}`);
+
+        // ── Step 2: Stage files in the worktree ──
         const addGlob = cfg.commitGlob.endsWith('/')
             ? `${cfg.commitGlob}${featureName}/`
             : cfg.commitGlob;
@@ -1023,7 +1026,6 @@ ${worktreeBlock}
         // Try specific glob first, fall back to git add -A for any new files
         const addResult = this.gitExec(`git add "${addGlob}"`, wt);
         if (addResult === undefined) {
-            // Glob didn't match — add all changes in the worktree
             this.gitExec('git add -A', wt);
         }
 
@@ -1034,15 +1036,17 @@ ${worktreeBlock}
             return;
         }
 
-        // Commit
+        this.log(`[worktree] Staged files:\n${diff}`);
+
+        // ── Step 3: Commit ──
         const commitMsg = `test(playwright): add ${featureName} spec [AgentLoop ${job.runId}/${job.indexLabel}]`;
         this.gitExec(`git commit -m "${commitMsg}"`, wt);
 
-        // Push
+        // ── Step 4: Push ──
         this.gitExec(`git push -u origin "${job.worktreeBranch}"`, wt);
         this.log(`[worktree] Pushed ${job.worktreeBranch}`);
 
-        // Create PR (if configured)
+        // ── Step 5: Create PR (if configured) ──
         if (cfg.prCreateCommand) {
             const prCmd = cfg.prCreateCommand
                 .replace(/\{FeatureName\}/gi, featureName)
@@ -1055,6 +1059,94 @@ ${worktreeBlock}
                 this.log(`[worktree] PR creation command failed (non-fatal).`);
             }
         }
+
+        // ── Step 6: Clean up agent files from main workspace ──
+        // Revert untracked/modified files so the next job starts clean.
+        // Only clean the test-artifact paths, not everything.
+        this.cleanAgentFilesFromMain(cwd, featureName);
+    }
+
+    /**
+     * Detects new/modified files in the main workspace via `git status`
+     * and copies them to the equivalent relative path inside the worktree.
+     * Skips .agent-loop-runner/ artefacts (status & progress files must stay
+     * in the main workspace for the extension's file watchers).
+     * Returns the number of files copied.
+     */
+    private copyNewFilesToWorktree(cwd: string, worktreePath: string, _featureName: string): number {
+        const status = this.gitExec('git status --porcelain', cwd);
+        if (!status) return 0;
+
+        let copied = 0;
+        const lines = status.split('\n').filter(Boolean);
+        for (const line of lines) {
+            // git status --porcelain format: XY <path>
+            const code = line.substring(0, 2);
+            let relPath = line.substring(3).trim();
+
+            // Handle renamed files ("R  old -> new")
+            if (relPath.includes(' -> ')) {
+                relPath = relPath.split(' -> ')[1].trim();
+            }
+
+            // Skip agent-loop-runner internal artefacts
+            if (relPath.startsWith('.agent-loop-runner/')) continue;
+            if (relPath.startsWith('.agent-loop/')) continue;
+            // Skip agent definition files
+            if (relPath.startsWith('.github/agents/')) continue;
+
+            // Only copy untracked (?), modified (M), or added (A) files
+            if (!code.includes('?') && !code.includes('M') && !code.includes('A')) continue;
+
+            const srcAbs = path.join(cwd, relPath);
+            const destAbs = path.join(worktreePath, relPath);
+
+            try {
+                // Ensure destination directory exists
+                fs.mkdirSync(path.dirname(destAbs), { recursive: true });
+                fs.copyFileSync(srcAbs, destAbs);
+                copied++;
+            } catch (err) {
+                this.log(`[worktree] Failed to copy ${relPath}: ${err}`);
+            }
+        }
+
+        return copied;
+    }
+
+    /**
+     * After committing to the worktree, clean up the files the agent created
+     * in the main workspace so the next job starts fresh.
+     */
+    private cleanAgentFilesFromMain(cwd: string, _featureName: string): void {
+        const status = this.gitExec('git status --porcelain', cwd);
+        if (!status) return;
+
+        const lines = status.split('\n').filter(Boolean);
+        for (const line of lines) {
+            const code = line.substring(0, 2);
+            let relPath = line.substring(3).trim();
+            if (relPath.includes(' -> ')) {
+                relPath = relPath.split(' -> ')[1].trim();
+            }
+
+            // Only clean test artefact files — leave .agent-loop-runner/ etc.
+            if (relPath.startsWith('.agent-loop-runner/')) continue;
+            if (relPath.startsWith('.agent-loop/')) continue;
+            if (relPath.startsWith('.github/agents/')) continue;
+
+            const absPath = path.join(cwd, relPath);
+
+            if (code.includes('?')) {
+                // Untracked file — delete it
+                try { fs.unlinkSync(absPath); } catch { /* ignore */ }
+            } else if (code.includes('M')) {
+                // Modified tracked file — restore original
+                this.gitExec(`git checkout -- "${relPath}"`, cwd);
+            }
+        }
+
+        this.log(`[worktree] Cleaned agent files from main workspace.`);
     }
 
     /**
