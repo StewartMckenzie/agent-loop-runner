@@ -2,7 +2,7 @@
   "name": "agent-loop-runner",
   "displayName": "Agent Loop Runner",
   "description": "Orchestrates AI agent runs over a list of URLs with fresh chat sessions, automated retry, and file-system-based status tracking.",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "publisher": "your-org",
   "repository": {
     "type": "git",
